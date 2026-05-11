@@ -1,0 +1,12 @@
+{
+  "keys": [
+    {
+      "kty": "RSA",
+      "use": "sig",
+      "alg": "RS256",
+      "kid": "grafana-demo-key-1",
+      "n": "3tHNmHhvXOGvGj4gkrvIHzM-7Gkj1gaedmfZL5RIO9xgDgw6hUZU6sW4QhvhV3N7lq-DEaE0xpOC4vnUXeEaOVFln3KcP6-RiZ3oIer6kZ83lyR2xq5MMr1RsrfXwrmiqHDvXR4y1vI97e68nCbU83ApnGbRoMepTtru-SyzW4Qz6oZXLd5oExOTpfwgvx6RXSmuFA7peLEm9hJ5VCskrKud39CDi412ud2RTS3pzro8bua1bmFvYI4f-AgNpTMXtDG9YsuPCR69GgtQZgTra4P61EIZAbcUaPEY9djIQqOh2U7HXlt3pyLRfssQwTUPM-geGOiMPhfxLbBKpv6KCQ",
+      "e": "AQAB"
+    }
+  ]
+}

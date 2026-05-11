@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Grafana JWT Demo — Wheelocity</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #0f1117;
+      color: #e0e0e0;
+      min-height: 100vh;
+    }
+
+    /* ── Header ── */
+    header {
+      background: #1a1d27;
+      border-bottom: 1px solid #2d3043;
+      padding: 16px 32px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    header .logo { font-size: 22px; font-weight: 700; color: #ff6b35; }
+    header .subtitle { font-size: 13px; color: #888; }
+    header .badge {
+      margin-left: auto;
+      background: #1e3a2f;
+      border: 1px solid #2d6a4f;
+      color: #52b788;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 20px;
+      letter-spacing: 0.5px;
+    }
+
+    /* ── Layout ── */
+    .container { display: flex; height: calc(100vh - 57px); }
+
+    /* ── Sidebar ── */
+    .sidebar {
+      width: 300px;
+      min-width: 300px;
+      background: #1a1d27;
+      border-right: 1px solid #2d3043;
+      padding: 24px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      overflow-y: auto;
+    }
+
+    .sidebar h3 {
+      font-size: 11px;
+      font-weight: 600;
+      color: #666;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+
+    .input-group { display: flex; flex-direction: column; gap: 6px; }
+    .input-group label { font-size: 13px; color: #aaa; }
+    .input-group input, .input-group select {
+      background: #0f1117;
+      border: 1px solid #2d3043;
+      border-radius: 6px;
+      color: #e0e0e0;
+      font-size: 13px;
+      padding: 8px 12px;
+      outline: none;
+      transition: border 0.2s;
+    }
+    .input-group input:focus, .input-group select:focus {
+      border-color: #ff6b35;
+    }
+
+    /* Dashboard URL input */
+    .url-input {
+      background: #0f1117;
+      border: 1px solid #2d3043;
+      border-radius: 6px;
+      color: #e0e0e0;
+      font-size: 12px;
+      padding: 8px 12px;
+      outline: none;
+      width: 100%;
+      font-family: monospace;
+    }
+
+    .btn {
+      background: #ff6b35;
+      border: none;
+      border-radius: 6px;
+      color: white;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 10px 16px;
+      transition: background 0.2s;
+      width: 100%;
+    }
+    .btn:hover { background: #e85d2a; }
+    .btn:disabled { background: #444; cursor: not-allowed; }
+    .btn.secondary {
+      background: #2d3043;
+      color: #aaa;
+    }
+    .btn.secondary:hover { background: #373d5a; color: #fff; }
+
+    /* ── Token Status Card ── */
+    .token-card {
+      background: #0f1117;
+      border: 1px solid #2d3043;
+      border-radius: 8px;
+      padding: 14px;
+    }
+    .token-card .status-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: #666;
+      flex-shrink: 0;
+    }
+    .dot.active { background: #52b788; box-shadow: 0 0 6px #52b788; }
+    .dot.expired { background: #e63946; }
+    .dot.loading { background: #f4a261; animation: pulse 1s infinite; }
+
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+    .token-label { font-size: 13px; font-weight: 600; }
+    .token-meta { font-size: 11px; color: #666; }
+    .token-preview {
+      font-family: monospace;
+      font-size: 10px;
+      color: #52b788;
+      background: #0a0d14;
+      border-radius: 4px;
+      padding: 6px 8px;
+      word-break: break-all;
+      max-height: 60px;
+      overflow: hidden;
+      line-height: 1.4;
+    }
+    .countdown {
+      font-size: 12px;
+      color: #f4a261;
+      margin-top: 8px;
+      text-align: center;
+    }
+    .countdown.danger { color: #e63946; }
+
+    /* ── Info box ── */
+    .info-box {
+      background: #0a1628;
+      border: 1px solid #1a3a5c;
+      border-left: 3px solid #4895ef;
+      border-radius: 6px;
+      padding: 12px;
+      font-size: 12px;
+      color: #88b4d8;
+      line-height: 1.6;
+    }
+    .info-box code {
+      background: #0f1f38;
+      padding: 1px 4px;
+      border-radius: 3px;
+      font-size: 11px;
+    }
+
+    /* ── Main Panel ── */
+    .main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .toolbar {
+      background: #1a1d27;
+      border-bottom: 1px solid #2d3043;
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 13px;
+    }
+    .toolbar .label { color: #888; }
+    .toolbar .value { color: #e0e0e0; font-weight: 500; }
+    .toolbar .sep { color: #333; }
+
+    .iframe-wrap {
+      flex: 1;
+      position: relative;
+      background: #0a0d14;
+    }
+    .iframe-wrap iframe {
+      width: 100%;
+      height: 100%;
+      border: none;
+    }
+    .hidden { display: none !important; }
+
+    /* ── Overlay states ── */
+    .overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      background: #0a0d14;
+      z-index: 10;
+    }
+    .overlay.hidden { display: none; }
+    .overlay-icon { font-size: 48px; }
+    .overlay-title { font-size: 18px; font-weight: 600; }
+    .overlay-sub { font-size: 13px; color: #888; text-align: center; max-width: 400px; line-height: 1.6; }
+
+    /* ── Log ── */
+    .log-panel {
+      background: #0a0d14;
+      border-top: 1px solid #2d3043;
+      height: 120px;
+      overflow-y: auto;
+      padding: 8px 16px;
+      font-family: monospace;
+      font-size: 11px;
+    }
+    .log-line { padding: 2px 0; }
+    .log-line.info { color: #4895ef; }
+    .log-line.success { color: #52b788; }
+    .log-line.warn { color: #f4a261; }
+    .log-line.error { color: #e63946; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div>
+    <div class="logo">🔐 Grafana JWT Demo</div>
+    <div class="subtitle">Secure iframe embedding with short-lived tokens</div>
+  </div>
+  <div class="badge">● LOCAL DEV</div>
+</header>
+
+<div class="container">
+
+  <!-- ── Sidebar ── -->
+  <div class="sidebar">
+
+    <div>
+      <h3>Configuration</h3>
+    </div>
+
+    <div class="input-group">
+      <label>Your Username</label>
+      <input type="text" id="inp-user" value="demo-viewer" placeholder="alice" />
+    </div>
+
+    <div class="input-group">
+      <label>Your Email</label>
+      <input type="text" id="inp-email" value="demo@wheelocity.local" placeholder="alice@company.com" />
+    </div>
+
+    <div class="input-group">
+      <label>Token TTL (minutes)</label>
+      <select id="inp-ttl">
+        <option value="5">5 minutes</option>
+        <option value="15" selected>15 minutes</option>
+        <option value="30">30 minutes</option>
+        <option value="60">1 hour</option>
+      </select>
+    </div>
+
+    <div class="input-group">
+      <label>Grafana Dashboard URL (base, no token)</label>
+      <input type="text" class="url-input" id="inp-url"
+        value="http://localhost:3000/d-solo/YOUR_DASHBOARD_UID/my-demo-dashboard?orgId=1&panelId=1"
+        placeholder="http://localhost:3000/d-solo/UID/name?..." />
+    </div>
+
+    <button class="btn" id="btn-load" onclick="loadDashboard()">
+      🚀 Generate Token &amp; Load
+    </button>
+
+    <button class="btn secondary" id="btn-refresh" onclick="refreshToken()" disabled>
+      🔄 Refresh Token
+    </button>
+
+    <!-- Token Status Card -->
+    <div class="token-card">
+      <div class="status-row">
+        <div class="dot" id="status-dot"></div>
+        <div class="token-label" id="status-label">No token yet</div>
+      </div>
+      <div class="token-meta" id="status-meta">Click "Generate Token & Load" to start</div>
+      <div class="token-preview" id="token-preview" style="display:none"></div>
+      <div class="countdown" id="countdown"></div>
+    </div>
+
+    <div class="info-box">
+      <strong>How this works:</strong><br/>
+      1. Backend signs a JWT with your RSA <code>private.pem</code><br/>
+      2. Token is appended as <code>?auth_token=...</code><br/>
+      3. Grafana verifies via <code>jwks.json</code><br/>
+      4. Token auto-refreshes before expiry
+    </div>
+
+  </div>
+
+  <!-- ── Main Panel ── -->
+  <div class="main">
+
+    <div class="toolbar">
+      <span class="label">User:</span>
+      <span class="value" id="tb-user">—</span>
+      <span class="sep">|</span>
+      <span class="label">Token expires:</span>
+      <span class="value" id="tb-expiry">—</span>
+      <span class="sep">|</span>
+      <span class="label">Backend:</span>
+      <span class="value" id="tb-backend">checking...</span>
+    </div>
+
+    <div class="iframe-wrap">
+      <!-- Overlay: idle -->
+      <div class="overlay" id="overlay-idle">
+        <div class="overlay-icon">🔐</div>
+        <div class="overlay-title">No Dashboard Loaded</div>
+        <div class="overlay-sub">
+          Fill in your username and the Grafana dashboard URL on the left,
+          then click <strong>Generate Token &amp; Load</strong>.
+          <br/><br/>
+          Make sure Grafana is running at <strong>localhost:3000</strong>
+          and you've created a dashboard there first.
+        </div>
+      </div>
+
+      <!-- Overlay: loading -->
+      <div class="overlay hidden" id="overlay-loading">
+        <div class="overlay-icon">⏳</div>
+        <div class="overlay-title">Fetching JWT Token...</div>
+        <div class="overlay-sub">Signing token with RSA private key and loading dashboard</div>
+      </div>
+
+      <!-- Overlay: error -->
+      <div class="overlay hidden" id="overlay-error">
+        <div class="overlay-icon">⚠️</div>
+        <div class="overlay-title" id="err-title">Error</div>
+        <div class="overlay-sub" id="err-sub"></div>
+      </div>
+
+      <iframe id="grafana-frame" class="hidden" title="Grafana Dashboard"></iframe>
+    </div>
+
+    <!-- Log panel -->
+    <div class="log-panel" id="log-panel">
+      <div class="log-line info">[system] JWT Demo frontend loaded. Waiting for token request...</div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  const BACKEND = "http://localhost:4000";
+  let currentToken = null;
+  let expiryTime = null;
+  let countdownTimer = null;
+  let autoRefreshTimer = null;
+
+  // ── Logging ──────────────────────────────────────────────────────────────
+  function log(msg, type = "info") {
+    const panel = document.getElementById("log-panel");
+    const ts = new Date().toLocaleTimeString();
+    const line = document.createElement("div");
+    line.className = `log-line ${type}`;
+    line.textContent = `[${ts}] ${msg}`;
+    panel.appendChild(line);
+    panel.scrollTop = panel.scrollHeight;
+  }
+
+  // ── Overlay control ──────────────────────────────────────────────────────
+  function showOverlay(id) {
+    ["overlay-idle", "overlay-loading", "overlay-error"].forEach(o => {
+      document.getElementById(o).classList.add("hidden");
+    });
+    document.getElementById("grafana-frame").classList.add("hidden");
+    if (id) document.getElementById(id).classList.remove("hidden");
+  }
+
+  function showIframe() {
+    ["overlay-idle", "overlay-loading", "overlay-error"].forEach(o => {
+      document.getElementById(o).classList.add("hidden");
+    });
+    document.getElementById("grafana-frame").classList.remove("hidden");
+  }
+
+  // ── Token status card ────────────────────────────────────────────────────
+  function setStatus(state, label, meta, token) {
+    const dot = document.getElementById("status-dot");
+    dot.className = "dot " + state;
+    document.getElementById("status-label").textContent = label;
+    document.getElementById("status-meta").textContent = meta;
+    if (token) {
+      document.getElementById("token-preview").style.display = "block";
+      document.getElementById("token-preview").textContent = token.substring(0, 80) + "...";
+    }
+  }
+
+  // ── Countdown ────────────────────────────────────────────────────────────
+  function startCountdown(expiresAt) {
+    clearInterval(countdownTimer);
+    const cd = document.getElementById("countdown");
+    countdownTimer = setInterval(() => {
+      const diff = Math.floor((new Date(expiresAt) - Date.now()) / 1000);
+      if (diff <= 0) {
+        cd.className = "countdown danger";
+        cd.textContent = "⚠️ Token expired — refresh needed";
+        clearInterval(countdownTimer);
+        setStatus("expired", "Token Expired", "Fresh URL login required", null);
+        return;
+      }
+      const m = Math.floor(diff / 60), s = diff % 60;
+      cd.className = diff < 60 ? "countdown danger" : "countdown";
+      cd.textContent = `⏱ Token expires in ${m}m ${s}s`;
+    }, 1000);
+  }
+
+  // ── Auto-refresh 60s before expiry ───────────────────────────────────────
+  function scheduleAutoRefresh(expiresAt, ttl) {
+    clearTimeout(autoRefreshTimer);
+    const msUntilRefresh = new Date(expiresAt) - Date.now() - 60000;
+    if (msUntilRefresh > 0) {
+      autoRefreshTimer = setTimeout(() => {
+        log("Auto-refreshing token (60s before expiry)...", "warn");
+        refreshToken();
+      }, msUntilRefresh);
+      log(`Auto-refresh scheduled in ${Math.round(msUntilRefresh / 1000)}s`, "info");
+    }
+  }
+
+  function buildGrafanaUrlWithToken(baseUrl, token) {
+    const url = new URL(baseUrl);
+    url.searchParams.set("auth_token", token);
+    return url.toString();
+  }
+
+  async function requestToken(user, email, ttl) {
+    const res = await fetch(`${BACKEND}/token?user=${encodeURIComponent(user)}&email=${encodeURIComponent(email)}&ttl=${ttl}`);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `Backend returned ${res.status}`);
+    return data;
+  }
+
+  // ── Load dashboard ───────────────────────────────────────────────────────
+  async function loadDashboard() {
+    const user  = document.getElementById("inp-user").value.trim();
+    const email = document.getElementById("inp-email").value.trim();
+    const ttl   = document.getElementById("inp-ttl").value;
+    const baseUrl = document.getElementById("inp-url").value.trim();
+
+    if (!user || !email || !baseUrl) {
+      log("Please fill in all fields", "error");
+      return;
+    }
+
+    try {
+      new URL(baseUrl);
+    } catch {
+      log("Grafana Dashboard URL must be an absolute URL, for example http://localhost:3000/d-solo/...", "error");
+      return;
+    }
+
+    showOverlay("overlay-loading");
+    setStatus("loading", "Fetching token...", "Calling backend", null);
+    log(`Requesting JWT for user="${user}" ttl=${ttl}m...`, "info");
+
+    try {
+      const data = await requestToken(user, email, ttl);
+
+      currentToken = data.token;
+      expiryTime = data.expiresAt;
+
+      const iframeSrc = buildGrafanaUrlWithToken(baseUrl, data.token);
+      
+      const frame = document.getElementById("grafana-frame");
+      frame.src = iframeSrc;
+      showIframe();
+
+      // Update UI
+      document.getElementById("tb-user").textContent = `${user} (${email})`;
+      document.getElementById("tb-expiry").textContent = new Date(data.expiresAt).toLocaleTimeString();
+      document.getElementById("btn-refresh").disabled = false;
+
+      setStatus("active", "Token Active ✓", `Expires at ${new Date(data.expiresAt).toLocaleTimeString()}`, data.token);
+      startCountdown(data.expiresAt);
+      scheduleAutoRefresh(data.expiresAt, ttl);
+
+      log(`✓ Token issued — expires ${data.expiresAt}`, "success");
+      log(`✓ Dashboard loaded with JWT auth`, "success");
+
+    } catch (err) {
+      document.getElementById("err-title").textContent = "Failed to get token";
+      document.getElementById("err-sub").textContent = 
+        `${err.message}\n\nMake sure the backend is running at localhost:4000\nRun: docker compose up backend`;
+      showOverlay("overlay-error");
+      setStatus("expired", "Error", err.message, null);
+      log(`✗ ${err.message}`, "error");
+    }
+  }
+
+  // ── Refresh token (same params) ──────────────────────────────────────────
+  async function refreshToken() {
+    const user  = document.getElementById("inp-user").value.trim();
+    const email = document.getElementById("inp-email").value.trim();
+    const ttl   = document.getElementById("inp-ttl").value;
+    const baseUrl = document.getElementById("inp-url").value.trim();
+
+    log("Refreshing JWT token silently...", "warn");
+    setStatus("loading", "Refreshing...", "Silent token rotation", null);
+
+    try {
+      const data = await requestToken(user, email, ttl);
+
+      currentToken = data.token;
+      expiryTime = data.expiresAt;
+
+      // Reload iframe with the new URL-login token.
+      document.getElementById("grafana-frame").src = buildGrafanaUrlWithToken(baseUrl, data.token);
+
+      document.getElementById("tb-expiry").textContent = new Date(data.expiresAt).toLocaleTimeString();
+      setStatus("active", "Token Refreshed ✓", `New expiry: ${new Date(data.expiresAt).toLocaleTimeString()}`, data.token);
+      startCountdown(data.expiresAt);
+      scheduleAutoRefresh(data.expiresAt, ttl);
+
+      log(`✓ Token refreshed silently — new expiry ${data.expiresAt}`, "success");
+    } catch (err) {
+      log(`✗ Refresh failed: ${err.message}`, "error");
+    }
+  }
+
+  // ── Check backend health on load ─────────────────────────────────────────
+  async function checkBackend() {
+    try {
+      const res = await fetch(`${BACKEND}/health`);
+      if (res.ok) {
+        document.getElementById("tb-backend").textContent = "✅ localhost:4000";
+        document.getElementById("tb-backend").style.color = "#52b788";
+        log("Backend health check passed", "success");
+      }
+    } catch {
+      document.getElementById("tb-backend").textContent = "❌ Not reachable";
+      document.getElementById("tb-backend").style.color = "#e63946";
+      log("Backend not reachable at localhost:4000 — start docker compose", "error");
+    }
+  }
+
+  checkBackend();
+</script>
+</body>
+</html>

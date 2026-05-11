@@ -1,0 +1,71 @@
+services:
+  grafana:
+    image: grafana/grafana:11.5.2
+    container_name: grafana-jwt-demo
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin123}
+      # ── JWT Authentication ──────────────────────────────────────────
+      - GF_AUTH_JWT_ENABLED=true
+      - GF_AUTH_JWT_URL_LOGIN=true
+      - GF_AUTH_JWT_HEADER_NAME=X-JWT-Assertion
+      - GF_AUTH_JWT_USERNAME_CLAIM=login
+      - GF_AUTH_JWT_EMAIL_CLAIM=email
+      - GF_AUTH_JWT_JWK_SET_FILE=/etc/grafana/jwks.json
+      - GF_AUTH_JWT_CACHE_TTL=60m
+      - GF_AUTH_JWT_AUTO_SIGN_UP=true
+      # ── Security / Embedding ────────────────────────────────────────
+      - GF_SECURITY_ALLOW_EMBEDDING=true
+      - GF_SECURITY_COOKIE_SAMESITE=lax
+      - GF_SECURITY_COOKIE_SECURE=false # set true if using HTTPS
+      - GF_AUTH_LOGIN_MAXIMUM_INACTIVE_LIFETIME_DURATION=15m
+      - GF_AUTH_LOGIN_MAXIMUM_LIFETIME_DURATION=1h
+      # ── Disable login form (optional – JWT only) ────────────────────
+      # - GF_AUTH_DISABLE_LOGIN_FORM=true
+    volumes:
+      - grafana-storage:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - ./backend/jwks.json:/etc/grafana/jwks.json:ro
+    networks:
+      - demo-net
+
+  backend:
+    image: node:20-alpine
+    container_name: jwt-backend
+    working_dir: /app
+    ports:
+      - "4000:4000"
+    environment:
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:8080}
+      - AUTHORIZED_EMAIL_DOMAINS=${AUTHORIZED_EMAIL_DOMAINS:-wheelocity.local,demo.local,test.com}
+      - MAX_TOKEN_TTL_MINUTES=${MAX_TOKEN_TTL_MINUTES:-60}
+      - GRAFANA_URL=${GRAFANA_URL:-http://localhost:3000}
+    volumes:
+      - ./backend:/app
+    command: sh -c "npm install && node server.js"
+    networks:
+      - demo-net
+    depends_on:
+      - grafana
+
+  frontend:
+    image: nginx:alpine
+    container_name: jwt-frontend
+    ports:
+      - "8080:80"
+    volumes:
+      - ./frontend:/usr/share/nginx/html:ro
+    networks:
+      - demo-net
+    depends_on:
+      - backend
+
+volumes:
+  grafana-storage:
+
+networks:
+  demo-net:
+    driver: bridge

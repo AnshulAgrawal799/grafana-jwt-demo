@@ -1,0 +1,13 @@
+{
+  "name": "grafana-jwt-backend",
+  "version": "1.0.0",
+  "description": "JWT token server for Grafana iframe authentication demo",
+  "main": "server.js",
+  "scripts": {
+    "generate:keys": "node scripts/generate-keys.js",
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "jsonwebtoken": "^9.0.2"
+  }
+}
