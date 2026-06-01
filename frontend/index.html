@@ -310,10 +310,10 @@
 
     <div class="info-box">
       <strong>How this works:</strong><br/>
-      1. Backend signs a JWT with your RSA <code>private.pem</code><br/>
-      2. Token is appended as <code>?auth_token=...</code><br/>
-      3. Grafana verifies via <code>jwks.json</code><br/>
-      4. Token auto-refreshes before expiry
+      1. Frontend sends a WebView-style app JWT to the broker<br/>
+      2. Backend signs a Grafana JWT with <code>private.pem</code><br/>
+      3. Token is appended as <code>?auth_token=...</code><br/>
+      4. Grafana verifies the token with <code>public.pem</code> plus issuer, audience, and role checks
     </div>
 
   </div>
@@ -455,8 +455,35 @@
     return url.toString();
   }
 
+  function toBase64Url(value) {
+    const json = JSON.stringify(value);
+    const encoded = btoa(unescape(encodeURIComponent(json)));
+    return encoded.replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
+  }
+
+  function buildDemoAppJwt(user, email) {
+    const now = Math.floor(Date.now() / 1000);
+    const header = { alg: "none", typ: "JWT" };
+    const payload = {
+      iss: "wow-user-app-demo",
+      sub: user,
+      login: email,
+      email,
+      name: email,
+      iat: now,
+      exp: now + 3600,
+    };
+
+    return `${toBase64Url(header)}.${toBase64Url(payload)}.`;
+  }
+
   async function requestToken(user, email, ttl) {
-    const res = await fetch(`${BACKEND}/token?user=${encodeURIComponent(user)}&email=${encodeURIComponent(email)}&ttl=${ttl}`);
+    const authToken = buildDemoAppJwt(user, email);
+    const res = await fetch(`${BACKEND}/api/grafana/embed-token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ authToken, ttlSeconds: Number(ttl) * 60 }),
+    });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.error || `Backend returned ${res.status}`);
     return data;
@@ -483,7 +510,7 @@
 
     showOverlay("overlay-loading");
     setStatus("loading", "Fetching token...", "Calling backend", null);
-    log(`Requesting JWT for user="${user}" ttl=${ttl}m...`, "info");
+    log(`Posting WebView-style app JWT to /api/grafana/embed-token for user="${user}" ttl=${ttl}m...`, "info");
 
     try {
       const data = await requestToken(user, email, ttl);
@@ -506,8 +533,8 @@
       startCountdown(data.expiresAt);
       scheduleAutoRefresh(data.expiresAt, ttl);
 
-      log(`✓ Token issued — expires ${data.expiresAt}`, "success");
-      log(`✓ Dashboard loaded with JWT auth`, "success");
+      log(`✓ Grafana token issued — expires ${data.expiresAt}`, "success");
+      log(`✓ Dashboard loaded with auth_token URL login`, "success");
 
     } catch (err) {
       document.getElementById("err-title").textContent = "Failed to get token";

@@ -13,7 +13,11 @@ services:
       - GF_AUTH_JWT_HEADER_NAME=X-JWT-Assertion
       - GF_AUTH_JWT_USERNAME_CLAIM=login
       - GF_AUTH_JWT_EMAIL_CLAIM=email
-      - GF_AUTH_JWT_JWK_SET_FILE=/etc/grafana/jwks.json
+      - GF_AUTH_JWT_NAME_CLAIM=name
+      - GF_AUTH_JWT_KEY_FILE=/etc/grafana/wow-web-public.pem
+      - GF_AUTH_JWT_EXPECT_CLAIMS={"iss":"wow-web","aud":"grafana-insights"}
+      - GF_AUTH_JWT_ROLE_ATTRIBUTE_PATH=role
+      - GF_AUTH_JWT_ROLE_ATTRIBUTE_STRICT=true
       - GF_AUTH_JWT_CACHE_TTL=60m
       - GF_AUTH_JWT_AUTO_SIGN_UP=true
       # ── Security / Embedding ────────────────────────────────────────
@@ -28,7 +32,7 @@ services:
       - grafana-storage:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
-      - ./backend/jwks.json:/etc/grafana/jwks.json:ro
+      - ./backend/public.pem:/etc/grafana/wow-web-public.pem:ro
     networks:
       - demo-net
 
@@ -43,6 +47,11 @@ services:
       - AUTHORIZED_EMAIL_DOMAINS=${AUTHORIZED_EMAIL_DOMAINS:-wheelocity.local,demo.local,test.com}
       - MAX_TOKEN_TTL_MINUTES=${MAX_TOKEN_TTL_MINUTES:-60}
       - GRAFANA_URL=${GRAFANA_URL:-http://localhost:3000}
+      - GRAFANA_JWT_KEY_ID=${GRAFANA_JWT_KEY_ID:-wow-web-prod-20260531124246}
+      - GRAFANA_JWT_ISSUER=${GRAFANA_JWT_ISSUER:-wow-web}
+      - GRAFANA_JWT_AUDIENCE=${GRAFANA_JWT_AUDIENCE:-grafana-insights}
+      - GRAFANA_JWT_ROLE=${GRAFANA_JWT_ROLE:-Viewer}
+      - GRAFANA_JWT_DEFAULT_TTL_SECONDS=${GRAFANA_JWT_DEFAULT_TTL_SECONDS:-900}
     volumes:
       - ./backend:/app
     command: sh -c "npm install && node server.js"

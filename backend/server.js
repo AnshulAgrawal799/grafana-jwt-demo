@@ -6,16 +6,18 @@ const jwt = require("jsonwebtoken");
 loadLocalEnv(path.join(__dirname, ".env"));
 
 const PORT = Number(process.env.PORT || 4000);
-const KEY_ID = "grafana-demo-key-1";
-const ISSUER = "grafana-jwt-demo";
-const DEFAULT_TTL_MINUTES = 15;
+const KEY_ID = process.env.GRAFANA_JWT_KEY_ID || "wow-web-prod-20260531124246";
+const ISSUER = process.env.GRAFANA_JWT_ISSUER || "wow-web";
+const AUDIENCE = process.env.GRAFANA_JWT_AUDIENCE || "grafana-insights";
+const ROLE = process.env.GRAFANA_JWT_ROLE || "Viewer";
+const DEFAULT_TTL_SECONDS = Number(process.env.GRAFANA_JWT_DEFAULT_TTL_SECONDS || 900);
 const MAX_TTL_MINUTES = Number(process.env.MAX_TOKEN_TTL_MINUTES || 60);
 const GRAFANA_URL = process.env.GRAFANA_URL || "http://localhost:3000";
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || "http://localhost:8080")
   .split(",")
   .map((origin) => origin.trim())
   .filter(Boolean);
-const AUTHORIZED_EMAIL_DOMAINS = (process.env.AUTHORIZED_EMAIL_DOMAINS || "")
+const AUTHORIZED_EMAIL_DOMAINS = (process.env.AUTHORIZED_EMAIL_DOMAINS || "wheelocity.local,demo.local,test.com")
   .split(",")
   .map((domain) => domain.trim().toLowerCase())
   .filter(Boolean);
@@ -53,11 +55,20 @@ function sendJson(res, statusCode, payload) {
 }
 
 function parseTtl(rawTtl) {
-  const ttl = rawTtl === null ? DEFAULT_TTL_MINUTES : Number(rawTtl);
+  const ttl = rawTtl === null ? Math.ceil(DEFAULT_TTL_SECONDS / 60) : Number(rawTtl);
   if (!Number.isInteger(ttl) || ttl < 1 || ttl > MAX_TTL_MINUTES) {
     throw new Error(`ttl must be a whole number from 1 to ${MAX_TTL_MINUTES} minutes`);
   }
   return ttl;
+}
+
+function parseTtlSeconds(rawTtlSeconds) {
+  const ttlSeconds = rawTtlSeconds === undefined ? DEFAULT_TTL_SECONDS : Number(rawTtlSeconds);
+  const maxTtlSeconds = MAX_TTL_MINUTES * 60;
+  if (!Number.isInteger(ttlSeconds) || ttlSeconds < 60 || ttlSeconds > maxTtlSeconds) {
+    throw new Error(`ttlSeconds must be a whole number from 60 to ${maxTtlSeconds}`);
+  }
+  return ttlSeconds;
 }
 
 function validateIdentity(userId, email) {
@@ -83,27 +94,85 @@ function setCorsHeaders(req, res) {
     res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Vary", "Origin");
   }
-  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 }
 
+function readJsonBody(req) {
+  return new Promise((resolve, reject) => {
+    let body = "";
+
+    req.on("data", (chunk) => {
+      body += chunk;
+      if (body.length > 1024 * 1024) {
+        req.destroy();
+        reject(new Error("Request body is too large"));
+      }
+    });
+
+    req.on("end", () => {
+      if (!body.trim()) return resolve({});
+
+      try {
+        resolve(JSON.parse(body));
+      } catch {
+        reject(new Error("Request body must be valid JSON"));
+      }
+    });
+
+    req.on("error", reject);
+  });
+}
+
+function decodeJwtPayload(token) {
+  if (!token) return null;
+
+  try {
+    return jwt.decode(token) || null;
+  } catch {
+    return null;
+  }
+}
+
+function getIdentityFromRequest(body) {
+  const decodedAppToken = decodeJwtPayload(body.authToken);
+
+  if (!decodedAppToken || typeof decodedAppToken !== "object") {
+    throw new Error("authToken must be a decodable app/WebView JWT");
+  }
+
+  const email = decodedAppToken.email || decodedAppToken.login;
+  const userId = decodedAppToken.sub || decodedAppToken.userId || email;
+  const name = decodedAppToken.name || email;
+
+  if (!email) {
+    throw new Error("authToken must include email or login");
+  }
+
+  validateIdentity(userId, email);
+
+  return { userId, email, name };
+}
+
 // Generate a Grafana token for a validated user.
-function generateToken(userId, email, ttlMinutes) {
+function generateToken(userId, email, name, ttlSeconds) {
   return jwt.sign({
     sub: userId,
-    login: userId,
+    login: email,
     email,
-    name: userId,
+    name,
+    role: ROLE,
   }, PRIVATE_KEY, {
     algorithm: "RS256",
     keyid: KEY_ID,
     issuer: ISSUER,
-    expiresIn: `${ttlMinutes}m`,
+    audience: AUDIENCE,
+    expiresIn: ttlSeconds,
   });
 }
 
 // ─── HTTP server ─────────────────────────────────────────────────────────────
-const server = http.createServer((req, res) => {
+const server = http.createServer(async (req, res) => {
   setCorsHeaders(req, res);
   res.setHeader("Content-Type", "application/json");
   res.setHeader("Cache-Control", "no-store");
@@ -114,6 +183,26 @@ const server = http.createServer((req, res) => {
   }
 
   const url = new URL(req.url, `http://localhost:${PORT}`);
+
+  // ── POST /api/grafana/embed-token ────────────────────────────────────────
+  if (req.method === "POST" && url.pathname === "/api/grafana/embed-token") {
+    let body;
+
+    try {
+      body = await readJsonBody(req);
+      const ttlSeconds = parseTtlSeconds(body.ttlSeconds);
+      const identity = getIdentityFromRequest(body);
+      const token = generateToken(identity.userId, identity.email, identity.name, ttlSeconds);
+
+      return sendJson(res, 200, {
+        token,
+        expiresAt: new Date(Date.now() + ttlSeconds * 1000).toISOString(),
+        ttlSeconds,
+      });
+    } catch (err) {
+      return sendJson(res, 400, { error: err.message });
+    }
+  }
 
   // ── GET /token?user=myuser&email=me@example.com ──────────────────────────
   if (url.pathname === "/token") {
@@ -128,11 +217,14 @@ const server = http.createServer((req, res) => {
       return sendJson(res, 400, { error: err.message });
     }
 
-    const token = generateToken(user, email, ttl);
+    const token = generateToken(user, email, email, ttl * 60);
     return sendJson(res, 200, {
       token,
       user,
       email,
+      issuer: ISSUER,
+      audience: AUDIENCE,
+      role: ROLE,
       ttlMinutes: ttl,
       expiresAt: new Date(Date.now() + ttl * 60 * 1000).toISOString(),
       grafanaUrl: GRAFANA_URL,
@@ -148,7 +240,9 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`\n✅  JWT Backend running at http://localhost:${PORT}`);
+  console.log(`\nJWT Backend running at http://localhost:${PORT}`);
+  console.log(`   POST /api/grafana/embed-token`);
   console.log(`   GET /token?user=alice&email=alice@demo.local`);
+  console.log(`   issuer=${ISSUER} audience=${AUDIENCE} kid=${KEY_ID} role=${ROLE}`);
   console.log(`   GET /health\n`);
 });

@@ -5,6 +5,7 @@
   "main": "server.js",
   "scripts": {
     "generate:keys": "node scripts/generate-keys.js",
+    "validate:contract": "node scripts/validate-token-contract.js",
     "start": "node server.js"
   },
   "dependencies": {

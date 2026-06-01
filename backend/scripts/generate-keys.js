@@ -6,7 +6,7 @@ const backendDir = path.resolve(__dirname, "..");
 const privateKeyPath = path.join(backendDir, "private.pem");
 const publicKeyPath = path.join(backendDir, "public.pem");
 const jwksPath = path.join(backendDir, "jwks.json");
-const keyId = process.env.JWT_KEY_ID || "grafana-demo-key-1";
+const keyId = process.env.GRAFANA_JWT_KEY_ID || process.env.JWT_KEY_ID || "wow-web-prod-20260531124246";
 const force = process.argv.includes("--force");
 
 if (!force && fs.existsSync(privateKeyPath)) {

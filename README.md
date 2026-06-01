@@ -1,7 +1,17 @@
-# 🔐 Grafana JWT Demo — Local Setup Guide
+# Grafana JWT Demo - Local Setup Guide
 
 Secure Grafana iframe embedding using short-lived JWT tokens.
 Use this local Docker demo to validate the flow before changing your company's Grafana instance.
+
+This demo is aligned with the wow-web live CP tracking embed contract:
+
+- Algorithm: `RS256`
+- Key ID / `kid`: `wow-web-prod-20260531124246`
+- Issuer: `wow-web`
+- Audience: `grafana-insights`
+- Role claim: `Viewer`
+- Token location: Grafana iframe URL query parameter named `auth_token`
+- Browser flow: frontend sends a WebView-style app JWT to `/api/grafana/embed-token`, the broker decodes identity without signature verification for this demo, then signs a Grafana JWT.
 
 > This setup is for local validation only. Production needs real user authorization in the token service, HTTPS, secure cookie settings, secret management, and a Grafana configuration review.
 
@@ -26,10 +36,11 @@ grafana-jwt-demo/
 │   ├── package.json
 │   ├── package-lock.json
 │   ├── scripts/
-│   │   └── generate-keys.js    ← creates matching local JWT keys + JWKS
+│   │   ├── generate-keys.js    ← creates matching local JWT keys + public key material
+│   │   └── validate-token-contract.js ← checks kid/issuer/audience/role
 │   ├── private.pem             ← RSA private key (signs JWTs)  ⚠️ keep secret
-│   ├── public.pem              ← RSA public key
-│   └── jwks.json               ← JWKS format (mounted into Grafana)
+│   ├── public.pem              ← RSA public key mounted into Grafana
+│   └── jwks.json               ← optional JWKS format for alternate Grafana setups
 ├── frontend/
 │   └── index.html              ← Demo UI with iframe + token refresh
 └── grafana/
@@ -60,7 +71,19 @@ npm run generate:keys
 cd ..
 ```
 
-This creates matching `backend/private.pem`, `backend/public.pem`, and `backend/jwks.json`. Commit the public files only if you intentionally want to share that generated public key; never commit `backend/private.pem`.
+This creates matching `backend/private.pem`, `backend/public.pem`, and `backend/jwks.json`. The main demo mounts `backend/public.pem` into Grafana, matching the production request to trust a PEM public key. `backend/jwks.json` is optional public-key material for environments that prefer JWKS; the wow-web refactor does not require Next.js to verify the incoming WebView app JWT with JWKS.
+
+The generated Grafana JWT defaults to `kid=wow-web-prod-20260531124246` so the token header matches the production request shape. You can override it with `GRAFANA_JWT_KEY_ID` before running the generator.
+
+Before presenting the demo, run the contract check:
+
+```bash
+cd backend
+npm run validate:contract
+cd ..
+```
+
+Expected result: JSON with `valid: true`, `alg: RS256`, `kid: wow-web-prod-20260531124246`, `iss: wow-web`, `aud: grafana-insights`, `role: Viewer`, and `publicKey.file: backend/public.pem`.
 
 If you run the backend manually outside Docker, copy its env template too:
 
@@ -134,19 +157,26 @@ Solo URL:      http://localhost:3000/d-solo/dflpv18qkxgxsc/new-dashboard?orgId=1
     - The local backend allows these demo email domains: `wheelocity.local`, `demo.local`, `test.com`
 4. Click **"Generate Token & Load"**
 
-✅ The dashboard loads inside the iframe — **authenticated via JWT URL login, no password needed**.
+The dashboard loads inside the iframe, authenticated via JWT URL login with no Grafana password prompt.
 
 ---
 
 ## 🔍 Step 6 — Verify JWT Authentication is Working
 
 ```bash
-# 1. Get a raw token from the backend
-curl "http://localhost:4000/token?user=alice&email=alice@demo.local&ttl=15"
+# 1. Check the local signing/public-key contract
+cd backend && npm run validate:contract && cd ..
 
-# 2. Decode it (paste the token at jwt.io to inspect claims)
+# 2. Get a raw Grafana token from the app-style broker endpoint
+# The authToken below is an unsigned demo app/WebView JWT whose payload is:
+# {"sub":"alice","email":"alice@demo.local","name":"Alice Demo"}
+curl -X POST "http://localhost:4000/api/grafana/embed-token" \
+    -H "Content-Type: application/json" \
+    -d '{"authToken":"eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiJhbGljZSIsImVtYWlsIjoiYWxpY2VAZGVtby5sb2NhbCIsIm5hbWUiOiJBbGljZSBEZW1vIn0.","ttlSeconds":900}'
 
-# 3. Try the Grafana URL manually with the token in a browser/profile that is not already logged into Grafana:
+# 3. Decode it (paste the token at jwt.io to inspect claims)
+
+# 4. Try the Grafana URL manually with the token in a browser/profile that is not already logged into Grafana:
 # http://localhost:3000/d-solo/UID/name?orgId=1&panelId=1&auth_token=<TOKEN>
 ```
 
@@ -174,15 +204,17 @@ Verified locally on May 11, 2026:
 ```text
 Browser (localhost:8080)
     │
-    ├── 1. Calls http://localhost:4000/token
-    │         Backend signs JWT with private.pem (RS256)
-    │         Token contains: user, email, exp (15 min)
+    ├── 1. Calls http://localhost:4000/api/grafana/embed-token
+    │         Request includes a WebView-style app JWT in the body
+    │         Backend decodes identity from that app JWT for this demo
+    │         Backend signs a Grafana JWT with private.pem (RS256)
+    │         Token contains: iss, aud, sub, login, email, name, role, exp
     │
     └── 2. Sets iframe src with ?auth_token=eyJhb...
               │
               ▼
             Grafana (localhost:3000)
-                Verifies JWT signature using jwks.json (public key)
+                Verifies JWT signature, issuer, audience, and role using public.pem
                 Creates/finds user in its DB
                 Starts a Grafana session for the iframe
                 Future iframe reloads need a fresh, unexpired JWT
@@ -205,12 +237,19 @@ Docker Compose reads these values from `.env` when present, otherwise it uses th
 
 | Variable | Local value | Purpose |
 | --- | --- | --- |
-| `ALLOWED_ORIGINS` | `http://localhost:8080` | Only the demo frontend can call `/token` from a browser. |
+| `ALLOWED_ORIGINS` | `http://localhost:8080` | Only the demo frontend can call the token endpoints from a browser. |
 | `AUTHORIZED_EMAIL_DOMAINS` | `wheelocity.local,demo.local,test.com` | Demo-only email domain allowlist before issuing a token. |
-| `MAX_TOKEN_TTL_MINUTES` | `60` | Maximum accepted `ttl` query parameter. |
+| `MAX_TOKEN_TTL_MINUTES` | `60` | Maximum accepted token lifetime. |
 | `GRAFANA_URL` | `http://localhost:3000` | Browser-facing Grafana URL returned by the token API. |
+| `GRAFANA_JWT_KEY_ID` | `wow-web-prod-20260531124246` | JWT header `kid`; useful for key identification and rotation. |
+| `GRAFANA_JWT_ISSUER` | `wow-web` | Grafana validates this with `expect_claims`. |
+| `GRAFANA_JWT_AUDIENCE` | `grafana-insights` | Grafana validates this with `expect_claims`. |
+| `GRAFANA_JWT_ROLE` | `Viewer` | Sent as the Grafana role claim. |
+| `GRAFANA_JWT_DEFAULT_TTL_SECONDS` | `900` | Default Grafana JWT lifetime for `/api/grafana/embed-token`. |
 
-The token endpoint rejects invalid identity input, unauthorized email domains, and TTL values outside `1..MAX_TOKEN_TTL_MINUTES`.
+The app-style token endpoint requires an `authToken`, decodes identity from that app/WebView JWT without signature verification for this demo, and rejects invalid identity input, unauthorized email domains, and TTL values outside the configured bounds.
+
+For compatibility with older demo notes, `GET /token?user=...&email=...&ttl=...` still exists. The best demo path is the app-style `POST /api/grafana/embed-token` endpoint because it mirrors wow-web.
 
 ---
 
@@ -219,9 +258,18 @@ The token endpoint rejects invalid identity input, unauthorized email domains, a
 ```bash
 # Test with expired token (modify exp claim manually)
 # Test with unauthorized email domain
-curl "http://localhost:4000/token?user=hacker&email=hacker@evil.com"
-# → Fails in this demo because the backend checks AUTHORIZED_EMAIL_DOMAINS
-# → In production: validate the current signed-in app user before issuing any token
+curl -X POST "http://localhost:4000/api/grafana/embed-token" \
+    -H "Content-Type: application/json" \
+    -d '{"authToken":"eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiJoYWNrZXIiLCJlbWFpbCI6ImhhY2tlckBldmlsLmNvbSIsIm5hbWUiOiJIYWNrZXIifQ.","ttlSeconds":900}'
+# Fails in this demo because the backend checks AUTHORIZED_EMAIL_DOMAINS
+# The wow-web refactor intentionally decodes the WebView app JWT identity without cryptographic verification for now.
+# If that requirement changes later, verify the app JWT before signing the Grafana JWT.
+
+# Test missing app/WebView token
+curl -X POST "http://localhost:4000/api/grafana/embed-token" \
+    -H "Content-Type: application/json" \
+    -d '{"ttlSeconds":900}'
+# Fails because the broker requires identity to come from authToken.
 
 # View backend logs
 docker compose logs backend -f
@@ -242,7 +290,7 @@ If the iframe shows a Grafana login page, check these first:
 - The URL must include the correct `panelId`.
 - The email must use an allowed demo domain.
 - The browser should not be relying on an existing admin session while you verify JWT.
-- `backend/jwks.json` must match `backend/private.pem`; restart Grafana after changing keys.
+- `backend/public.pem` must match `backend/private.pem`; restart Grafana after changing keys.
 
 ---
 
@@ -260,8 +308,8 @@ docker compose down -v       # stop + delete Grafana data
 | File | Secret? | Notes |
 | --- | --- | --- |
 | `backend/private.pem` | ✅ YES | Never commit to git. Signs all JWTs. |
-| `backend/jwks.json` | ❌ No | Public key — safe to share. Grafana needs this. |
-| `backend/public.pem` | ❌ No | Public key in PEM format. |
+| `backend/public.pem` | No | Public key in PEM format. Grafana uses this in the main demo path. |
+| `backend/jwks.json` | No | Optional public key representation for JWKS-based Grafana setups. |
 
 This repo includes `.gitignore` entries for the private key, local `.env` files, dependency folders, logs, and local Docker/Grafana runtime state. The `.env.example` files are safe to commit.
 If this demo is shared through a tar/zip file, the sample private key can be included for convenience. Do not commit or reuse it in a real environment.
@@ -270,7 +318,7 @@ If this demo is shared through a tar/zip file, the sample private key can be inc
 
 ## 📦 Next Steps (Production)
 
-- [ ] Replace the demo email-domain check with your real authorization logic
+- [ ] Keep the app JWT verification posture aligned with wow-web requirements
 - [ ] Set `auto_sign_up=false` unless Grafana user creation is intentionally controlled
 - [ ] Move `private.pem` to a secrets manager (AWS Secrets Manager, Vault, etc.)
 - [ ] Use HTTPS (token in URL must be encrypted in transit)
