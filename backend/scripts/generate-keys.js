@@ -5,7 +5,6 @@ const path = require("path");
 const backendDir = path.resolve(__dirname, "..");
 const privateKeyPath = path.join(backendDir, "private.pem");
 const publicKeyPath = path.join(backendDir, "public.pem");
-const jwksPath = path.join(backendDir, "jwks.json");
 const keyId = process.env.GRAFANA_JWT_KEY_ID || process.env.JWT_KEY_ID || "wow-web-prod-20260531124246";
 const force = process.argv.includes("--force");
 
@@ -20,23 +19,8 @@ const { privateKey, publicKey } = crypto.generateKeyPairSync("rsa", {
 
 const privatePem = privateKey.export({ type: "pkcs8", format: "pem" });
 const publicPem = publicKey.export({ type: "spki", format: "pem" });
-const jwk = publicKey.export({ format: "jwk" });
-
-const jwks = {
-  keys: [
-    {
-      kty: jwk.kty,
-      use: "sig",
-      alg: "RS256",
-      kid: keyId,
-      n: jwk.n,
-      e: jwk.e,
-    },
-  ],
-};
 
 fs.writeFileSync(privateKeyPath, privatePem);
 fs.writeFileSync(publicKeyPath, publicPem);
-fs.writeFileSync(jwksPath, `${JSON.stringify(jwks, null, 2)}\n`);
 
-console.log("Generated backend/private.pem, backend/public.pem, and backend/jwks.json.");
+console.log(`Generated backend/private.pem and backend/public.pem with kid=${keyId}.`);
