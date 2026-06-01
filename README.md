@@ -11,7 +11,7 @@ This demo is aligned with the wow-web live CP tracking embed contract:
 - Audience: `grafana-insights`
 - Role claim: `Viewer`
 - Token location: Grafana iframe URL query parameter named `auth_token`
-- Browser flow: the Next.js page calls `attachGrafanaAuthToken`, sends a WebView-style app JWT to `/api/grafana/embed-token`, the broker decodes identity without signature verification for this demo, then signs a Grafana JWT.
+- Browser flow: the Next.js page calls `attachGrafanaAuthToken`, sends a WebView-style app JWT to `/api/grafana/embed-token`, the broker decodes identity without signature verification for this demo, then signs a Grafana JWT. If the WebView JWT has no email claim, the broker mirrors wow-web and derives a synthetic `@wow.local` email from the user identifier.
 
 > This setup is for local validation only. Production needs real user authorization in the token service, HTTPS, secure cookie settings, secret management, and a Grafana configuration review.
 
@@ -161,8 +161,8 @@ Solo URL:      http://localhost:3000/d-solo/dflpv18qkxgxsc/new-dashboard?orgId=1
 1. Open <http://localhost:8080>
 2. Paste your solo panel URL into the **"Grafana Dashboard URL"** field
 3. Enter your username and email
-    - The local Next.js broker allows these demo email domains: `wheelocity.local`, `demo.local`, `test.com`
     - The page encodes these demo values into an unsigned WebView-style `authToken`; the broker does not receive `user`, `email`, or `name` as separate identity fields.
+    - The real WebView path uses `__context.user.jwt`; the demo page uses that value automatically when the page is opened with a cached WebView POST body.
 4. Click **"Generate Token & Load"**
 
 The dashboard loads inside the iframe, authenticated via JWT URL login with no Grafana password prompt.
@@ -180,7 +180,7 @@ cd backend && npm run validate:contract && cd ..
 # {"sub":"alice","email":"alice@demo.local","name":"Alice Demo"}
 curl -X POST "http://localhost:8080/api/grafana/embed-token" \
     -H "Content-Type: application/json" \
-    -d '{"authToken":"eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiJhbGljZSIsImVtYWlsIjoiYWxpY2VAZGVtby5sb2NhbCIsIm5hbWUiOiJBbGljZSBEZW1vIn0.","ttlSeconds":900}'
+    -d '{"authToken":"eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiJhbGljZSIsImVtYWlsIjoiYWxpY2VAZGVtby5sb2NhbCIsIm5hbWUiOiJBbGljZSBEZW1vIn0."}'
 
 # 3. Decode it (paste the token at jwt.io to inspect claims)
 # Expected identity claims in the returned Grafana JWT:
@@ -247,16 +247,13 @@ Docker Compose reads these values from `.env` when present, otherwise it uses th
 
 | Variable | Local value | Purpose |
 | --- | --- | --- |
-| `AUTHORIZED_EMAIL_DOMAINS` | `wheelocity.local,demo.local,test.com` | Demo-only email domain allowlist before issuing a token. |
-| `MAX_TOKEN_TTL_MINUTES` | `60` | Maximum accepted token lifetime. |
 | `GRAFANA_URL` | `http://localhost:3000` | Browser-facing Grafana URL returned by the token API. |
 | `GRAFANA_JWT_KEY_ID` | `wow-web-prod-20260531124246` | JWT header `kid`; useful for key identification and rotation. |
 | `GRAFANA_JWT_ISSUER` | `wow-web` | Grafana validates this with `expect_claims`. |
 | `GRAFANA_JWT_AUDIENCE` | `grafana-insights` | Grafana validates this with `expect_claims`. |
-| `GRAFANA_JWT_ROLE` | `Viewer` | Sent as the Grafana role claim. |
-| `GRAFANA_JWT_DEFAULT_TTL_SECONDS` | `900` | Default Grafana JWT lifetime for `/api/grafana/embed-token`. |
+| `GRAFANA_JWT_DEFAULT_TTL_SECONDS` | `1800` | Default Grafana JWT lifetime for `/api/grafana/embed-token`, matching wow-web. |
 
-The app-style token endpoint requires an `authToken`, decodes identity from that app/WebView JWT without signature verification for this demo, and rejects invalid identity input, unauthorized email domains, and TTL values outside the configured bounds.
+The app-style token endpoint requires an `authToken`, decodes identity from that app/WebView JWT without signature verification for this demo, requires a user identifier claim, and signs a `Viewer` Grafana JWT.
 
 For compatibility with older demo notes, `GET /token?user=...&email=...&ttl=...` still exists. The best demo path is the app-style `POST /api/grafana/embed-token` endpoint because it mirrors wow-web.
 
@@ -265,19 +262,18 @@ For compatibility with older demo notes, `GET /token?user=...&email=...&ttl=...`
 ## 🧪 Test Edge Cases
 
 ```bash
-# Test with expired token (modify exp claim manually)
-# Test with unauthorized email domain
+# Test with a WebView token that has only a user identifier
 curl -X POST "http://localhost:4000/api/grafana/embed-token" \
     -H "Content-Type: application/json" \
-    -d '{"authToken":"eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiJoYWNrZXIiLCJlbWFpbCI6ImhhY2tlckBldmlsLmNvbSIsIm5hbWUiOiJIYWNrZXIifQ.","ttlSeconds":900}'
-# Fails in this demo because the backend checks AUTHORIZED_EMAIL_DOMAINS
+    -d '{"authToken":"eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiJ1c2VyLTQyIn0."}'
+# Succeeds and returns a Grafana JWT with login/email/name=user-42@wow.local.
 # The wow-web refactor intentionally decodes the WebView app JWT identity without cryptographic verification for now.
 # If that requirement changes later, verify the app JWT before signing the Grafana JWT.
 
 # Test missing app/WebView token
 curl -X POST "http://localhost:4000/api/grafana/embed-token" \
     -H "Content-Type: application/json" \
-    -d '{"ttlSeconds":900}'
+    -d '{}'
 # Fails because the broker requires identity to come from authToken.
 
 # View backend logs
@@ -297,7 +293,6 @@ If the iframe shows a Grafana login page, check these first:
 
 - The URL pasted into the frontend must be a `d-solo/...` URL and must include the real dashboard UID.
 - The URL must include the correct `panelId`.
-- The email must use an allowed demo domain.
 - The browser should not be relying on an existing admin session while you verify JWT.
 - `backend/public.pem` must match `backend/private.pem`; restart Grafana after changing keys.
 

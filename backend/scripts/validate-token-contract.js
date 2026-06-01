@@ -12,8 +12,8 @@ const config = {
   keyId: process.env.GRAFANA_JWT_KEY_ID || "wow-web-prod-20260531124246",
   issuer: process.env.GRAFANA_JWT_ISSUER || "wow-web",
   audience: process.env.GRAFANA_JWT_AUDIENCE || "grafana-insights",
-  role: process.env.GRAFANA_JWT_ROLE || "Viewer",
-  ttlSeconds: Number(process.env.GRAFANA_JWT_DEFAULT_TTL_SECONDS || 900),
+  role: "Viewer",
+  ttlSeconds: Number(process.env.GRAFANA_JWT_DEFAULT_TTL_SECONDS || 1800),
 };
 
 function loadLocalEnv(filePath) {

@@ -17,8 +17,8 @@ export interface SignedGrafanaEmbedToken {
 }
 
 const MIN_TTL_SECONDS = 60;
-const MAX_TTL_SECONDS = Number(process.env.MAX_TOKEN_TTL_MINUTES ?? 60) * 60;
-const DEFAULT_TTL_SECONDS = 900;
+const MAX_TTL_SECONDS = 1800;
+const DEFAULT_TTL_SECONDS = 1800;
 
 let privateKeyPromise: ReturnType<typeof importPKCS8> | undefined;
 
@@ -64,7 +64,6 @@ export async function signGrafanaEmbedToken(
   const issuer = requiredEnv('GRAFANA_JWT_ISSUER', 'wow-web');
   const audience = requiredEnv('GRAFANA_JWT_AUDIENCE', 'grafana-insights');
   const kid = requiredEnv('GRAFANA_JWT_KEY_ID', 'wow-web-prod-20260531124246');
-  const role = process.env.GRAFANA_JWT_ROLE || 'Viewer';
   const ttl = clampTtlSeconds(ttlSeconds);
   const nowSeconds = Math.floor(Date.now() / 1000);
   const exp = nowSeconds + ttl;
@@ -73,7 +72,7 @@ export async function signGrafanaEmbedToken(
     login: user.email,
     email: user.email,
     name: user.name || user.email,
-    role,
+    role: 'Viewer',
   })
     .setProtectedHeader({ alg: 'RS256', kid, typ: 'JWT' })
     .setIssuer(issuer)

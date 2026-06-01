@@ -2,7 +2,6 @@ const REFRESH_LEEWAY_MS = 60_000;
 
 export interface AttachGrafanaAuthTokenOptions {
   webviewJwt?: string | null;
-  ttlSeconds?: number;
 }
 
 interface EmbedTokenResponse {
@@ -19,18 +18,15 @@ interface CachedToken {
 const inflight = new Map<string, Promise<CachedToken>>();
 const cache = new Map<string, CachedToken>();
 
-function cacheKey(webviewJwt: string | null | undefined, ttlSeconds: number | undefined): string {
-  if (!webviewJwt) return `admin:__session:${ttlSeconds ?? 'default'}`;
-  return `webview:${webviewJwt}:${ttlSeconds ?? 'default'}`;
+function cacheKey(webviewJwt: string | null | undefined): string {
+  if (!webviewJwt) return 'admin:__session';
+  return `webview:${webviewJwt}`;
 }
 
 async function fetchEmbedToken(options: AttachGrafanaAuthTokenOptions): Promise<CachedToken> {
-  const body: Record<string, string | number> = {};
+  const body: Record<string, string> = {};
   if (options.webviewJwt) {
     body.authToken = options.webviewJwt;
-  }
-  if (options.ttlSeconds) {
-    body.ttlSeconds = options.ttlSeconds;
   }
 
   const response = await fetch('/api/grafana/embed-token', {
@@ -61,7 +57,7 @@ async function fetchEmbedToken(options: AttachGrafanaAuthTokenOptions): Promise<
 }
 
 async function getCachedToken(options: AttachGrafanaAuthTokenOptions): Promise<CachedToken> {
-  const key = cacheKey(options.webviewJwt, options.ttlSeconds);
+  const key = cacheKey(options.webviewJwt);
   const existing = cache.get(key);
   if (existing && existing.expiresAtMs - Date.now() > REFRESH_LEEWAY_MS) {
     return existing;

@@ -43,14 +43,11 @@ services:
     ports:
       - "8080:3000"
     environment:
-      - AUTHORIZED_EMAIL_DOMAINS=${AUTHORIZED_EMAIL_DOMAINS:-wheelocity.local,demo.local,test.com}
-      - MAX_TOKEN_TTL_MINUTES=${MAX_TOKEN_TTL_MINUTES:-60}
       - GRAFANA_URL=${GRAFANA_URL:-http://localhost:3000}
       - GRAFANA_JWT_KEY_ID=${GRAFANA_JWT_KEY_ID:-wow-web-prod-20260531124246}
       - GRAFANA_JWT_ISSUER=${GRAFANA_JWT_ISSUER:-wow-web}
       - GRAFANA_JWT_AUDIENCE=${GRAFANA_JWT_AUDIENCE:-grafana-insights}
-      - GRAFANA_JWT_ROLE=${GRAFANA_JWT_ROLE:-Viewer}
-      - GRAFANA_JWT_DEFAULT_TTL_SECONDS=${GRAFANA_JWT_DEFAULT_TTL_SECONDS:-900}
+      - GRAFANA_JWT_DEFAULT_TTL_SECONDS=${GRAFANA_JWT_DEFAULT_TTL_SECONDS:-1800}
     volumes:
       - .:/app
       - /app/node_modules

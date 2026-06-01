@@ -8,8 +8,9 @@ export const dynamic = 'force-dynamic';
 
 interface EmbedTokenRequestBody {
   authToken?: unknown;
-  ttlSeconds?: unknown;
 }
+
+type AuthSource = 'webview';
 
 function jsonError(status: number, error: string, message: string) {
   return NextResponse.json(
@@ -19,13 +20,6 @@ function jsonError(status: number, error: string, message: string) {
       headers: { 'Cache-Control': 'no-store' },
     },
   );
-}
-
-function allowedDomains(): string[] {
-  return (process.env.AUTHORIZED_EMAIL_DOMAINS || 'wheelocity.local,demo.local,test.com')
-    .split(',')
-    .map((domain) => domain.trim().toLowerCase())
-    .filter(Boolean);
 }
 
 function pickJwtClaim(payload: JWTPayload, ...keys: string[]): string | undefined {
@@ -38,32 +32,20 @@ function pickJwtClaim(payload: JWTPayload, ...keys: string[]): string | undefine
   return undefined;
 }
 
-function validateIdentity(uid: string, email: string) {
-  if (!/^[A-Za-z0-9._@-]{1,64}$/.test(uid)) {
-    throw new Error('authToken user identifier contains unsupported characters');
-  }
-  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
-    throw new Error('authToken must include a valid email or login claim');
-  }
-
-  const domain = email.split('@').pop()?.toLowerCase();
-  const authorizedDomains = allowedDomains();
-  if (authorizedDomains.length > 0 && (!domain || !authorizedDomains.includes(domain))) {
-    throw new Error(`email domain is not authorized for this demo. Allowed domains: ${authorizedDomains.join(', ')}`);
-  }
+function toSyntheticEmail(value: string): string {
+  const safeValue = value.toLowerCase().replace(/[^a-z0-9._-]/g, '-').replace(/^-+|-+$/g, '');
+  return `${safeValue || 'webview-user'}@wow.local`;
 }
 
 function webviewJwtToEmbedUser(authToken: string): GrafanaEmbedUser {
   const payload = decodeJwt(authToken);
-  const email = pickJwtClaim(payload, 'email', 'login');
-  const uid = pickJwtClaim(payload, 'sub', 'uid', 'userId', 'user_id', 'userCredential', 'mobile', 'phone') || email;
+  const uid = pickJwtClaim(payload, 'sub', 'uid', 'userId', 'user_id', 'userCredential', 'mobile', 'phone');
 
-  if (!uid || !email) {
-    throw new Error('WebView authentication token is missing user identity claims');
+  if (!uid) {
+    throw new Error('WebView authentication token is missing a user identifier');
   }
 
-  validateIdentity(uid, email);
-
+  const email = pickJwtClaim(payload, 'email') || toSyntheticEmail(uid);
   return {
     uid,
     email,
@@ -71,38 +53,32 @@ function webviewJwtToEmbedUser(authToken: string): GrafanaEmbedUser {
   };
 }
 
-function parseTtlSeconds(rawTtlSeconds: unknown): number | undefined {
-  if (rawTtlSeconds === undefined || rawTtlSeconds === null || rawTtlSeconds === '') return undefined;
-  const ttlSeconds = Number(rawTtlSeconds);
-  if (!Number.isInteger(ttlSeconds)) {
-    throw new Error('ttlSeconds must be a whole number');
-  }
-  return ttlSeconds;
-}
-
 export async function POST(request: NextRequest) {
   try {
     const body = (await request.json().catch(() => ({}))) as EmbedTokenRequestBody;
 
+    let authSource: AuthSource | null = null;
+    let embedUser: GrafanaEmbedUser | null = null;
+
     if (typeof body.authToken !== 'string' || body.authToken.length === 0) {
-      return jsonError(401, 'unauthenticated', 'authToken is required');
+      return jsonError(401, 'unauthenticated', 'No active session');
     }
 
-    let embedUser: GrafanaEmbedUser;
     try {
+      authSource = 'webview';
       embedUser = webviewJwtToEmbedUser(body.authToken);
     } catch (error) {
       console.warn('[grafana/embed-token] webview JWT decode failed', {
         message: error instanceof Error ? error.message : String(error),
       });
-      return jsonError(401, 'unauthenticated', error instanceof Error ? error.message : 'Invalid WebView authentication token');
+      return jsonError(401, 'unauthenticated', 'Invalid WebView authentication token');
     }
 
-    const signedToken = await signGrafanaEmbedToken(embedUser, parseTtlSeconds(body.ttlSeconds));
+    const signedToken = await signGrafanaEmbedToken(embedUser);
 
     console.info('[grafana/embed-token] issued', {
       uid: embedUser.uid,
-      authSource: 'webview',
+      authSource,
       kid: signedToken.kid,
       exp: Math.floor(signedToken.expiresAt.getTime() / 1000),
     });

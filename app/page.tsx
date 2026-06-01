@@ -51,7 +51,6 @@ export default function Home() {
   const auth = useAuth();
   const [user, setUser] = useState('demo-viewer');
   const [email, setEmail] = useState('demo@wheelocity.local');
-  const [ttlMinutes, setTtlMinutes] = useState('15');
   const [dashboardUrl, setDashboardUrl] = useState(DEFAULT_GRAFANA_URL);
   const [iframeSrc, setIframeSrc] = useState('');
   const [status, setStatus] = useState<Status>('idle');
@@ -94,7 +93,6 @@ export default function Home() {
     try {
       const nextIframeSrc = await attachGrafanaAuthToken(dashboardUrl.trim(), {
         webviewJwt,
-        ttlSeconds: Number(ttlMinutes) * 60,
       });
       const token = extractAuthToken(nextIframeSrc);
       setIframeSrc(nextIframeSrc);
@@ -132,16 +130,6 @@ export default function Home() {
         <label>
           Email
           <input value={email} onChange={(event) => setEmail(event.target.value)} disabled={Boolean(postBodyJwt)} />
-        </label>
-
-        <label>
-          Token TTL
-          <select value={ttlMinutes} onChange={(event) => setTtlMinutes(event.target.value)}>
-            <option value="5">5 minutes</option>
-            <option value="15">15 minutes</option>
-            <option value="30">30 minutes</option>
-            <option value="60">1 hour</option>
-          </select>
         </label>
 
         <label>

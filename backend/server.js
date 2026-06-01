@@ -9,17 +9,13 @@ const PORT = Number(process.env.PORT || 4000);
 const KEY_ID = process.env.GRAFANA_JWT_KEY_ID || "wow-web-prod-20260531124246";
 const ISSUER = process.env.GRAFANA_JWT_ISSUER || "wow-web";
 const AUDIENCE = process.env.GRAFANA_JWT_AUDIENCE || "grafana-insights";
-const ROLE = process.env.GRAFANA_JWT_ROLE || "Viewer";
-const DEFAULT_TTL_SECONDS = Number(process.env.GRAFANA_JWT_DEFAULT_TTL_SECONDS || 900);
-const MAX_TTL_MINUTES = Number(process.env.MAX_TOKEN_TTL_MINUTES || 60);
+const ROLE = "Viewer";
+const DEFAULT_TTL_SECONDS = Number(process.env.GRAFANA_JWT_DEFAULT_TTL_SECONDS || 1800);
+const MAX_TTL_SECONDS = 1800;
 const GRAFANA_URL = process.env.GRAFANA_URL || "http://localhost:3000";
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || "http://localhost:8080")
   .split(",")
   .map((origin) => origin.trim())
-  .filter(Boolean);
-const AUTHORIZED_EMAIL_DOMAINS = (process.env.AUTHORIZED_EMAIL_DOMAINS || "wheelocity.local,demo.local,test.com")
-  .split(",")
-  .map((domain) => domain.trim().toLowerCase())
   .filter(Boolean);
 
 function loadLocalEnv(filePath) {
@@ -56,19 +52,10 @@ function sendJson(res, statusCode, payload) {
 
 function parseTtl(rawTtl) {
   const ttl = rawTtl === null ? Math.ceil(DEFAULT_TTL_SECONDS / 60) : Number(rawTtl);
-  if (!Number.isInteger(ttl) || ttl < 1 || ttl > MAX_TTL_MINUTES) {
-    throw new Error(`ttl must be a whole number from 1 to ${MAX_TTL_MINUTES} minutes`);
+  if (!Number.isInteger(ttl) || ttl < 1 || ttl > MAX_TTL_SECONDS / 60) {
+    throw new Error(`ttl must be a whole number from 1 to ${MAX_TTL_SECONDS / 60} minutes`);
   }
   return ttl;
-}
-
-function parseTtlSeconds(rawTtlSeconds) {
-  const ttlSeconds = rawTtlSeconds === undefined ? DEFAULT_TTL_SECONDS : Number(rawTtlSeconds);
-  const maxTtlSeconds = MAX_TTL_MINUTES * 60;
-  if (!Number.isInteger(ttlSeconds) || ttlSeconds < 60 || ttlSeconds > maxTtlSeconds) {
-    throw new Error(`ttlSeconds must be a whole number from 60 to ${maxTtlSeconds}`);
-  }
-  return ttlSeconds;
 }
 
 function validateIdentity(userId, email) {
@@ -78,14 +65,21 @@ function validateIdentity(userId, email) {
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
     throw new Error("email must be a valid email address");
   }
+}
 
-  if (AUTHORIZED_EMAIL_DOMAINS.length > 0) {
-    const domain = email.split("@").pop().toLowerCase();
-    if (!AUTHORIZED_EMAIL_DOMAINS.includes(domain)) {
-      const allowed = AUTHORIZED_EMAIL_DOMAINS.join(", ");
-      throw new Error(`email domain is not authorized for this demo. Allowed domains: ${allowed}`);
+function pickJwtClaim(payload, ...keys) {
+  for (const key of keys) {
+    const value = payload[key];
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
     }
   }
+  return undefined;
+}
+
+function toSyntheticEmail(value) {
+  const safeValue = value.toLowerCase().replace(/[^a-z0-9._-]/g, "-").replace(/^-+|-+$/g, "");
+  return `${safeValue || "webview-user"}@wow.local`;
 }
 
 function setCorsHeaders(req, res) {
@@ -145,15 +139,14 @@ function getIdentityFromRequest(body) {
     throw new Error("authToken must be a decodable app/WebView JWT");
   }
 
-  const email = decodedAppToken.email || decodedAppToken.login;
-  const userId = decodedAppToken.sub || decodedAppToken.userId || email;
-  const name = decodedAppToken.name || email;
+  const userId = pickJwtClaim(decodedAppToken, "sub", "uid", "userId", "user_id", "userCredential", "mobile", "phone");
 
-  if (!email) {
-    throw new Error("authToken must include email or login");
+  if (!userId) {
+    throw new Error("WebView authentication token is missing a user identifier");
   }
 
-  validateIdentity(userId, email);
+  const email = pickJwtClaim(decodedAppToken, "email") || toSyntheticEmail(userId);
+  const name = pickJwtClaim(decodedAppToken, "name", "shadowName", "displayName") || email;
 
   return { userId, email, name };
 }
@@ -194,8 +187,8 @@ const server = http.createServer(async (req, res) => {
 
     try {
       body = await readJsonBody(req);
-      const ttlSeconds = parseTtlSeconds(body.ttlSeconds);
       const identity = getIdentityFromRequest(body);
+      const ttlSeconds = Math.min(MAX_TTL_SECONDS, Math.max(60, Math.floor(DEFAULT_TTL_SECONDS)));
       const token = generateToken(identity.userId, identity.email, identity.name, ttlSeconds);
 
       return sendJson(res, 200, {
