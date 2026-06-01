@@ -36,14 +36,13 @@ services:
     networks:
       - demo-net
 
-  backend:
+  web:
     image: node:20-alpine
-    container_name: jwt-backend
+    container_name: grafana-jwt-demo-web
     working_dir: /app
     ports:
-      - "4000:4000"
+      - "8080:3000"
     environment:
-      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:8080}
       - AUTHORIZED_EMAIL_DOMAINS=${AUTHORIZED_EMAIL_DOMAINS:-wheelocity.local,demo.local,test.com}
       - MAX_TOKEN_TTL_MINUTES=${MAX_TOKEN_TTL_MINUTES:-60}
       - GRAFANA_URL=${GRAFANA_URL:-http://localhost:3000}
@@ -53,24 +52,14 @@ services:
       - GRAFANA_JWT_ROLE=${GRAFANA_JWT_ROLE:-Viewer}
       - GRAFANA_JWT_DEFAULT_TTL_SECONDS=${GRAFANA_JWT_DEFAULT_TTL_SECONDS:-900}
     volumes:
-      - ./backend:/app
-    command: sh -c "npm install && node server.js"
+      - .:/app
+      - /app/node_modules
+      - /app/.next
+    command: sh -c "npm install && npm run dev"
     networks:
       - demo-net
     depends_on:
       - grafana
-
-  frontend:
-    image: nginx:alpine
-    container_name: jwt-frontend
-    ports:
-      - "8080:80"
-    volumes:
-      - ./frontend:/usr/share/nginx/html:ro
-    networks:
-      - demo-net
-    depends_on:
-      - backend
 
 volumes:
   grafana-storage:

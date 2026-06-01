@@ -1,7 +1,7 @@
 # Grafana JWT Demo - Local Setup Guide
 
 Secure Grafana iframe embedding using short-lived JWT tokens.
-Use this local Docker demo to validate the flow before changing your company's Grafana instance.
+Use this local Next.js + Docker demo to validate the flow before changing your company's Grafana instance.
 
 This demo is aligned with the wow-web live CP tracking embed contract:
 
@@ -11,7 +11,7 @@ This demo is aligned with the wow-web live CP tracking embed contract:
 - Audience: `grafana-insights`
 - Role claim: `Viewer`
 - Token location: Grafana iframe URL query parameter named `auth_token`
-- Browser flow: frontend sends a WebView-style app JWT to `/api/grafana/embed-token`, the broker decodes identity without signature verification for this demo, then signs a Grafana JWT.
+- Browser flow: the Next.js page calls `attachGrafanaAuthToken`, sends a WebView-style app JWT to `/api/grafana/embed-token`, the broker decodes identity without signature verification for this demo, then signs a Grafana JWT.
 
 > This setup is for local validation only. Production needs real user authorization in the token service, HTTPS, secure cookie settings, secret management, and a Grafana configuration review.
 
@@ -29,10 +29,22 @@ This demo is aligned with the wow-web live CP tracking embed contract:
 ```text
 grafana-jwt-demo/
 ├── .env.example               ← sample Docker Compose environment values
-├── docker-compose.yml          ← spins up Grafana 11.5.2 + backend + frontend
+├── package.json                ← Next.js demo app scripts and dependencies
+├── next.config.ts              ← Next.js config
+├── proxy.ts                    ← WebView POST body cache bridge, matching wow-web shape
+├── docker-compose.yml          ← spins up Grafana 11.5.2 + Next.js web app
+├── app/
+│   ├── page.tsx                ← Demo UI with iframe + token refresh
+│   └── api/grafana/embed-token/route.ts ← Next.js token broker route
+├── components/AuthServerData.tsx ← Extracts cached WebView POST body auth data
+├── contexts/AuthContext.tsx    ← Client auth context, matching wow-web usage
+├── lib/
+│   ├── body-cache.ts           ← In-memory POST body cache for local demo
+│   └── grafana/
+│       ├── attachGrafanaAuthToken.ts ← Browser helper that appends auth_token
+│       └── embed-token.ts      ← Grafana JWT signer
 ├── backend/
-│   ├── .env.example           ← sample backend values for manual npm runs
-│   ├── server.js               ← Node.js JWT token server
+│   ├── server.js               ← Legacy standalone token server, kept for old local testing
 │   ├── package.json
 │   ├── package-lock.json
 │   ├── scripts/
@@ -41,8 +53,6 @@ grafana-jwt-demo/
 │   ├── private.pem             ← RSA private key (signs JWTs)  ⚠️ keep secret
 │   ├── public.pem              ← RSA public key mounted into Grafana
 │   └── jwks.json               ← optional JWKS format for alternate Grafana setups
-├── frontend/
-│   └── index.html              ← Demo UI with iframe + token refresh
 └── grafana/
     ├── dashboards/             ← optional provisioned dashboard JSON files
     └── provisioning/
@@ -62,13 +72,11 @@ For the default local demo values, Docker Compose can run without a `.env` file.
 cp .env.example .env
 ```
 
-The backend needs a private RSA key to sign JWTs. The private key is intentionally ignored by git, so generate a local key set before the first run if `backend/private.pem` is missing:
+The Next.js API route needs a private RSA key to sign JWTs. The private key is intentionally ignored by git, so generate a local key set before the first run if `backend/private.pem` is missing:
 
 ```bash
-cd backend
 npm install
 npm run generate:keys
-cd ..
 ```
 
 This creates matching `backend/private.pem`, `backend/public.pem`, and `backend/jwks.json`. The main demo mounts `backend/public.pem` into Grafana, matching the production request to trust a PEM public key. `backend/jwks.json` is optional public-key material for environments that prefer JWKS; the wow-web refactor does not require Next.js to verify the incoming WebView app JWT with JWKS.
@@ -78,14 +86,14 @@ The generated Grafana JWT defaults to `kid=wow-web-prod-20260531124246` so the t
 Before presenting the demo, run the contract check:
 
 ```bash
-cd backend
 npm run validate:contract
-cd ..
 ```
 
 Expected result: JSON with `valid: true`, `alg: RS256`, `kid: wow-web-prod-20260531124246`, `iss: wow-web`, `aud: grafana-insights`, `role: Viewer`, and `publicKey.file: backend/public.pem`.
 
-If you run the backend manually outside Docker, copy its env template too:
+The old `backend/server.js` can still be run manually for legacy testing, but Docker Compose now uses the root Next.js app as the broker.
+
+If you run the legacy backend manually outside Docker, copy its env template too:
 
 ```bash
 cp backend/.env.example backend/.env
@@ -99,15 +107,14 @@ cp backend/.env.example backend/.env
 # From the grafana-jwt-demo folder:
 docker compose up -d
 
-# Check all 3 containers are running:
+# Check both containers are running:
 docker compose ps
 ```
 
 You should see:
 
 - `grafana-jwt-demo`  → port 3000
-- `jwt-backend`       → port 4000
-- `jwt-frontend`      → port 8080
+- `grafana-jwt-demo-web` → port 8080
 
 ---
 
@@ -154,8 +161,8 @@ Solo URL:      http://localhost:3000/d-solo/dflpv18qkxgxsc/new-dashboard?orgId=1
 1. Open <http://localhost:8080>
 2. Paste your solo panel URL into the **"Grafana Dashboard URL"** field
 3. Enter your username and email
-    - The local backend allows these demo email domains: `wheelocity.local`, `demo.local`, `test.com`
-    - The frontend encodes these demo values into an unsigned WebView-style `authToken`; the broker does not receive `user`, `email`, or `name` as separate identity fields.
+    - The local Next.js broker allows these demo email domains: `wheelocity.local`, `demo.local`, `test.com`
+    - The page encodes these demo values into an unsigned WebView-style `authToken`; the broker does not receive `user`, `email`, or `name` as separate identity fields.
 4. Click **"Generate Token & Load"**
 
 The dashboard loads inside the iframe, authenticated via JWT URL login with no Grafana password prompt.
@@ -168,26 +175,18 @@ The dashboard loads inside the iframe, authenticated via JWT URL login with no G
 # 1. Check the local signing/public-key contract
 cd backend && npm run validate:contract && cd ..
 
-# 2. Confirm browser POST preflight is allowed for the app-style broker endpoint
-curl -i -X OPTIONS "http://localhost:4000/api/grafana/embed-token" \
-    -H "Origin: http://localhost:8080" \
-    -H "Access-Control-Request-Method: POST" \
-    -H "Access-Control-Request-Headers: content-type, authorization"
-
-Expected result: `204 No Content` with `Access-Control-Allow-Origin: http://localhost:8080`, `Access-Control-Allow-Methods: GET, POST, OPTIONS`, and `Access-Control-Allow-Headers: Content-Type, Authorization`.
-
-# 3. Get a raw Grafana token from the app-style broker endpoint
+# 2. Get a raw Grafana token from the app-style broker endpoint
 # The authToken below is an unsigned demo app/WebView JWT whose payload is:
 # {"sub":"alice","email":"alice@demo.local","name":"Alice Demo"}
-curl -X POST "http://localhost:4000/api/grafana/embed-token" \
+curl -X POST "http://localhost:8080/api/grafana/embed-token" \
     -H "Content-Type: application/json" \
     -d '{"authToken":"eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiJhbGljZSIsImVtYWlsIjoiYWxpY2VAZGVtby5sb2NhbCIsIm5hbWUiOiJBbGljZSBEZW1vIn0.","ttlSeconds":900}'
 
-# 4. Decode it (paste the token at jwt.io to inspect claims)
+# 3. Decode it (paste the token at jwt.io to inspect claims)
 # Expected identity claims in the returned Grafana JWT:
 # sub=alice, login=alice@demo.local, email=alice@demo.local, name=Alice Demo
 
-# 5. Try the Grafana URL manually with the token in a browser/profile that is not already logged into Grafana:
+# 4. Try the Grafana URL manually with the token in a browser/profile that is not already logged into Grafana:
 # http://localhost:3000/d-solo/UID/name?orgId=1&panelId=1&auth_token=<TOKEN>
 ```
 
@@ -202,8 +201,8 @@ Expected success signals:
 
 Verified locally on May 11, 2026:
 
-- `docker compose ps` showed Grafana, backend, and frontend running.
-- `http://localhost:4000/health` returned `{"status":"ok"}`.
+- `docker compose ps` showed Grafana and the Next.js web app running.
+- `http://localhost:8080/api/health` returned `{"status":"ok"}`.
 - Direct JWT URL login loaded the solo panel after logging out of admin.
 - The frontend loaded `Panel Title` / `A-series` inside the iframe.
 - Manual token refresh worked and scheduled the next refresh.
@@ -213,12 +212,12 @@ Verified locally on May 11, 2026:
 ## 🛡️ How JWT Auth Works Here
 
 ```text
-Browser (localhost:8080)
+Next.js page (localhost:8080)
     │
-    ├── 1. Calls http://localhost:4000/api/grafana/embed-token
+    ├── 1. Calls /api/grafana/embed-token through attachGrafanaAuthToken
     │         Request includes a WebView-style app JWT in the body
-    │         Backend decodes identity from that app JWT for this demo
-    │         Backend signs a Grafana JWT with private.pem (RS256)
+    │         Next.js route decodes identity from that app JWT for this demo
+    │         Next.js route signs a Grafana JWT with private.pem (RS256)
     │         Token contains: iss, aud, sub, login, email, name, role, exp
     │
     └── 2. Sets iframe src with ?auth_token=eyJhb...
@@ -242,13 +241,12 @@ Note: JWT expiry controls whether the URL can be used to log in. After Grafana a
 
 ---
 
-## ⚙️ Backend Controls
+## ⚙️ Broker Controls
 
-Docker Compose reads these values from `.env` when present, otherwise it uses the defaults in `docker-compose.yml`. The backend reads the same variables from the container environment, or from `backend/.env` when run manually:
+Docker Compose reads these values from `.env` when present, otherwise it uses the defaults in `docker-compose.yml`. The root Next.js app reads the same values when run manually:
 
 | Variable | Local value | Purpose |
 | --- | --- | --- |
-| `ALLOWED_ORIGINS` | `http://localhost:8080` | Only the demo frontend can call the token endpoints from a browser. |
 | `AUTHORIZED_EMAIL_DOMAINS` | `wheelocity.local,demo.local,test.com` | Demo-only email domain allowlist before issuing a token. |
 | `MAX_TOKEN_TTL_MINUTES` | `60` | Maximum accepted token lifetime. |
 | `GRAFANA_URL` | `http://localhost:3000` | Browser-facing Grafana URL returned by the token API. |
