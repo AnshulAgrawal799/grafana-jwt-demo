@@ -47,6 +47,23 @@ function extractAuthToken(url: string): string | null {
   }
 }
 
+function normalizeGrafanaEmbedUrl(value: string): string {
+  const url = new URL(value);
+  const panelView = url.searchParams.get('viewPanel');
+  const panelId = url.searchParams.get('panelId');
+
+  if (url.pathname.startsWith('/d-solo/') && panelId) {
+    url.pathname = url.pathname.replace('/d-solo/', '/d/');
+    url.searchParams.delete('panelId');
+    url.searchParams.set('viewPanel', `panel-${panelId.replace(/^panel-/, '')}`);
+  } else if (url.pathname.startsWith('/d/') && panelView && !panelView.startsWith('panel-')) {
+    url.searchParams.delete('viewPanel');
+    url.searchParams.set('viewPanel', `panel-${panelView}`);
+  }
+
+  return url.toString();
+}
+
 export default function Home() {
   const auth = useAuth();
   const [user, setUser] = useState('demo-viewer');
@@ -75,8 +92,9 @@ export default function Home() {
       return;
     }
 
+    let normalizedDashboardUrl: string;
     try {
-      new URL(dashboardUrl);
+      normalizedDashboardUrl = normalizeGrafanaEmbedUrl(dashboardUrl.trim());
     } catch {
       setStatus('error');
       setMessage('Grafana dashboard URL must be an absolute URL.');
@@ -91,7 +109,7 @@ export default function Home() {
     addLog('Calling /api/grafana/embed-token through attachGrafanaAuthToken.');
 
     try {
-      const nextIframeSrc = await attachGrafanaAuthToken(dashboardUrl.trim(), {
+      const nextIframeSrc = await attachGrafanaAuthToken(normalizedDashboardUrl, {
         webviewJwt,
       });
       const token = extractAuthToken(nextIframeSrc);
