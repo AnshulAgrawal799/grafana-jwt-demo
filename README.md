@@ -155,6 +155,7 @@ Solo URL:      http://localhost:3000/d-solo/dflpv18qkxgxsc/new-dashboard?orgId=1
 2. Paste your solo panel URL into the **"Grafana Dashboard URL"** field
 3. Enter your username and email
     - The local backend allows these demo email domains: `wheelocity.local`, `demo.local`, `test.com`
+    - The frontend encodes these demo values into an unsigned WebView-style `authToken`; the broker does not receive `user`, `email`, or `name` as separate identity fields.
 4. Click **"Generate Token & Load"**
 
 The dashboard loads inside the iframe, authenticated via JWT URL login with no Grafana password prompt.
@@ -167,16 +168,26 @@ The dashboard loads inside the iframe, authenticated via JWT URL login with no G
 # 1. Check the local signing/public-key contract
 cd backend && npm run validate:contract && cd ..
 
-# 2. Get a raw Grafana token from the app-style broker endpoint
+# 2. Confirm browser POST preflight is allowed for the app-style broker endpoint
+curl -i -X OPTIONS "http://localhost:4000/api/grafana/embed-token" \
+    -H "Origin: http://localhost:8080" \
+    -H "Access-Control-Request-Method: POST" \
+    -H "Access-Control-Request-Headers: content-type, authorization"
+
+Expected result: `204 No Content` with `Access-Control-Allow-Origin: http://localhost:8080`, `Access-Control-Allow-Methods: GET, POST, OPTIONS`, and `Access-Control-Allow-Headers: Content-Type, Authorization`.
+
+# 3. Get a raw Grafana token from the app-style broker endpoint
 # The authToken below is an unsigned demo app/WebView JWT whose payload is:
 # {"sub":"alice","email":"alice@demo.local","name":"Alice Demo"}
 curl -X POST "http://localhost:4000/api/grafana/embed-token" \
     -H "Content-Type: application/json" \
     -d '{"authToken":"eyJhbGciOiJub25lIiwidHlwIjoiSldUIn0.eyJzdWIiOiJhbGljZSIsImVtYWlsIjoiYWxpY2VAZGVtby5sb2NhbCIsIm5hbWUiOiJBbGljZSBEZW1vIn0.","ttlSeconds":900}'
 
-# 3. Decode it (paste the token at jwt.io to inspect claims)
+# 4. Decode it (paste the token at jwt.io to inspect claims)
+# Expected identity claims in the returned Grafana JWT:
+# sub=alice, login=alice@demo.local, email=alice@demo.local, name=Alice Demo
 
-# 4. Try the Grafana URL manually with the token in a browser/profile that is not already logged into Grafana:
+# 5. Try the Grafana URL manually with the token in a browser/profile that is not already logged into Grafana:
 # http://localhost:3000/d-solo/UID/name?orgId=1&panelId=1&auth_token=<TOKEN>
 ```
 

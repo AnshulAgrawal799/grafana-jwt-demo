@@ -95,7 +95,7 @@ function setCorsHeaders(req, res) {
     res.setHeader("Vary", "Origin");
   }
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
 }
 
 function readJsonBody(req) {
@@ -135,6 +135,10 @@ function decodeJwtPayload(token) {
 }
 
 function getIdentityFromRequest(body) {
+  if (typeof body.authToken !== "string" || !body.authToken.trim()) {
+    throw new Error("authToken is required");
+  }
+
   const decodedAppToken = decodeJwtPayload(body.authToken);
 
   if (!decodedAppToken || typeof decodedAppToken !== "object") {
