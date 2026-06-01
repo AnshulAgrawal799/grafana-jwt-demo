@@ -7,7 +7,7 @@ import { attachGrafanaAuthToken, clearGrafanaAuthTokenCache } from '@/lib/grafan
 
 type Status = 'idle' | 'loading' | 'active' | 'error';
 
-const DEFAULT_GRAFANA_URL = 'http://localhost:3000/d-solo/YOUR_DASHBOARD_UID/my-demo-dashboard?orgId=1&panelId=1';
+const DEFAULT_GRAFANA_URL = 'http://localhost:3000/d-solo/jwt-embed-demo/jwt-embed-demo?orgId=1&panelId=1';
 
 function toBase64Url(value: unknown): string {
   const json = JSON.stringify(value);
